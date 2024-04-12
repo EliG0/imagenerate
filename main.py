@@ -84,7 +84,6 @@ nazad = [[InlineKeyboardButton("Понятно ✅", callback_data="Назад")
 
 
 async def faq(update, context):
-    print(update.message)
     if update.message != None:
         await update.message.reply_text("Выберите действие:", reply_markup=InlineKeyboardMarkup(FAQKeyboard))
     else:
@@ -190,55 +189,65 @@ async def FAQstyles(update, context):
 
 
 async def start(update, context):
-    markup = ReplyKeyboardMarkup([['Сгенерировать изображение'], ['Поменять размер']], one_time_keyboard=True,
-                                 resize_keyboard=True)
-    await update.message.reply_text('Что бы вы хотели сделать?', reply_markup=markup)
+    # markup = ReplyKeyboardMarkup([['Сгенерировать изображение'], ['Поменять размер']], one_time_keyboard=True,                                 resize_keyboard=True)
+    markup = [[InlineKeyboardButton("Сгенерировать изображение", callback_data="to_gen")]]
+    mes = '''Привет, Я KandiBot! 👋
+    
+    Я могу генерировать любые изображения по твоему запросу🤩. Пробуй скорее!
+    Введи /image <текст>
+    '''
+    # - для быстрой генерации существует команда /image <текст>
+    await update.message.reply_text(mes)
+
+
+async def to_gen(update, context):
+    query = update.callback_query
+    mes = '''Введите текстовый запрос
+
+Чтобы картинка получилась красивой и ожидаемой, постарайтесь указать побольше деталей: описание объектов, настроение, цвета'''
+    markup = InlineKeyboardMarkup([[
+        InlineKeyboardButton("◀️Назад", callback_data="back"),
+        InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]])
+    await query.edit_message_text(mes, reply_markup=markup)
+
+
+async def ready_gen(update, context):
+    mes = f'''Параметры генерации изображения
+
+Вы можете начать генерацию, либо настроить дополнительные параметры:
+
+Промпт: Милая лисичка
+
+Стиль: Нет
+Соотношение сторон: 1:1
+Модель: Kandinsky 3.0
+Негативный промпт: Нет
+    '''
 
 
 async def text(update, context):
-    global size
-    if update.message.text == 'Поменять размер':
-        await size_image(update, context)
-    elif update.message.text == '768x1024':
-        size = (768, 1024)
-        await update.message.reply_text('Разрешение успешно изменено на 768x1024')
-        await close(update, context)
-    elif update.message.text == '1024x768':
-        size = (1024, 768)
-        await update.message.reply_text('Разрешение успешно изменено на 1024x768')
-        await close(update, context)
-    elif update.message.text == '1024x1024':
-        size = (1024, 1024)
-        await update.message.reply_text('Разрешение успешно изменено на 1024x1024')
-        await close(update, context)
-    else:
-        await update.message.reply_text('Используйте /image <something> для генерации')
+    await update.message.reply_text('Используйте /image <something> для генерации')
 
 
 async def generate_image(update, context):
     promt = ' '.join(context.args)
-    await update.message.reply_text(f'Делается "{promt}"')
-    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '9E9E96FF8D8E84CA66468EE4299FA764',
-                        'A518C79988CAA90C30C976EA5B4C05B0')
-    model_id = api.get_model()
-    global size
-    x, y = size
-    uuid = api.generate(f"{promt}", model_id, width=x, height=y)
-    images = api.check_generation(uuid)
-    l = '''image\\{(datetime.date.today())}\\{datetime.datetime.now().strftime('%H-%M-%S')}.png'''
-    with open(f"image\\generation.png", "wb") as file:
-        file.write(base64.b64decode(images[0]))
+    if promt:
 
-    await update.message.reply_photo(open(f"image\\generation.png", "rb"))
-
-
-async def size_image(update, context):
-    markup = ReplyKeyboardMarkup([['768x1024', '1024x768', '1024x1024']], one_time_keyboard=True, resize_keyboard=True)
-    await update.message.reply_text('Какой размер?', reply_markup=markup)
-
-
-async def close(update, context):
-    await start(update, context)
+        await update.message.reply_text(f'Делается "{promt}"')
+        api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '9E9E96FF8D8E84CA66468EE4299FA764',
+                            'A518C79988CAA90C30C976EA5B4C05B0')
+        model_id = api.get_model()
+        global size
+        x, y = size
+        uuid = api.generate(f"{promt}", model_id, width=x, height=y)
+        images = api.check_generation(uuid)
+        image = base64.b64decode(images[0])
+        if image:
+            await update.message.reply_photo(image)
+        else:
+            await update.message.reply_text('Не удалось сгенерировать изображение')
+    else:
+        await update.message.reply_text('Нельзя сгенерировать пустоту. Используйте /image <something> для генерации')
 
 
 def main():
@@ -247,11 +256,21 @@ def main():
     global size
     size = (1024, 1024)
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("size", size_image))
     application.add_handler(CommandHandler("faq", faq))
+    # conv_handler = ConversationHandler(
+    #     entry_points=[CallbackQueryHandler(to_gen, pattern='^to_gen$')],
+    #     states={
+    #         1: [
+    #             MessageHandler(filters.TEXT & ~filters.COMMAND),
+    #             # MessageHandler(filters.Regex("^Something else...$"), custom_choice),
+    #         ]
+    #     },
+    #     # fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
+    # )
+    #
+    # application.add_handler(conv_handler).
     application.add_handler(CallbackQueryHandler(button_faq))
     application.add_handler(CommandHandler("image", generate_image))
-    application.add_handler(CommandHandler("close", close))
     application.run_polling()
 
 
