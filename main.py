@@ -1,13 +1,12 @@
 import logging
-import asyncio
+import sys
+
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, \
     ConversationHandler
 from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot
-import random
 from config import BOT_TOKEN
 import json
 import time
-import datetime
 import requests
 import base64
 
@@ -25,14 +24,16 @@ class Text2ImageAPI:
         data = response.json()
         return data[0]['id']
 
-    def generate(self, prompt, model, width=1024, height=1024, images=1):
+    def generate(self, prompt, model, width=1024, height=1024, images=1, style="DEFAULT", negative=False):
         params = {
             "type": "GENERATE",
-            "numImages": images,
+            "style": style,
             "width": width,
             "height": height,
+            "num_images": images,
+            "negativePromptUnclip": negative,
             "generateParams": {
-                "query": f"{prompt}"
+                "query": prompt,
             }
         }
 
@@ -89,12 +90,12 @@ async def faq(update, context):
     else:
         await update.callback_query.edit_message_text("Выберите действие:",
                                                       reply_markup=InlineKeyboardMarkup(FAQKeyboard))
+    return ConversationHandler.END
 
 
 async def button_faq(update, context):
     query = update.callback_query
     await query.answer()
-
     if query.data in 'stylesНазадS':
         styles = [x for x in requests.get('https://cdn.fusionbrain.ai/static/styles/api').json()]
         s = 'Есть несколько стилей, подробнее вы можете узнать по кнопке ниже:\n'
@@ -102,15 +103,13 @@ async def button_faq(update, context):
         spisok = ([InlineKeyboardButton(reqget[i], callback_data=reqget[i])] for i in range(len(reqget)))
         key1 = [*spisok, [InlineKeyboardButton("⬅️Назад", callback_data="Назад")]]
 
-    if query.data == 'styles':
-        await query.edit_message_text(s, reply_markup=InlineKeyboardMarkup(key1))
-
+        if query.data == 'styles':
+            await query.edit_message_text(s, reply_markup=InlineKeyboardMarkup(key1))
+        elif query.data == "НазадS":
+            await query.message.reply_text(s, reply_markup=InlineKeyboardMarkup(key1))
+            await query.delete_message()
     elif query.data in ['Кандинский', "Детальное фото", "Аниме", "Свой стиль"]:
         await FAQstyles(update, context)
-
-    # elif query.data == '2':
-    #     await query.edit_message_text("Возможности Бота", reply_markup=InlineKeyboardMarkup(nazad))
-
     elif query.data == 'requests':
         await FAQReq(update, context)
 
@@ -125,10 +124,6 @@ async def button_faq(update, context):
 
     elif query.data == 'Назад':
         await faq(update, context)
-
-    elif query.data == "НазадS":
-        await query.message.reply_text(s, reply_markup=InlineKeyboardMarkup(key1))
-        await query.delete_message()
 
 
 async def FAQBote(update, context):
@@ -189,57 +184,78 @@ async def FAQstyles(update, context):
 
 
 async def start(update, context):
-    # markup = ReplyKeyboardMarkup([['Сгенерировать изображение'], ['Поменять размер']], one_time_keyboard=True,                                 resize_keyboard=True)
-    markup = [[InlineKeyboardButton("Сгенерировать изображение", callback_data="to_gen")]]
+    markup = [[InlineKeyboardButton("🖼Сгенерировать изображение", callback_data="to_gen")]]
     mes = '''Привет, Я KandiBot! 👋
     
     Я могу генерировать любые изображения по твоему запросу🤩. Пробуй скорее!
     Введи /image <текст>
     '''
     # - для быстрой генерации существует команда /image <текст>
-    await update.message.reply_text(mes)
+    try:
+        await update.message.reply_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+    except AttributeError:
+        await update.callback_query.edit_message_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 async def to_gen(update, context):
-    query = update.callback_query
     mes = '''Введите текстовый запрос
 
 Чтобы картинка получилась красивой и ожидаемой, постарайтесь указать побольше деталей: описание объектов, настроение, цвета'''
     markup = InlineKeyboardMarkup([[
-        InlineKeyboardButton("◀️Назад", callback_data="back"),
+        InlineKeyboardButton("◀️Назад", callback_data="main_menu"),
         InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]])
-    await query.edit_message_text(mes, reply_markup=markup)
+    await update.callback_query.edit_message_text(mes, reply_markup=markup)
+    return 'await_text'
+
+
+async def apply_text(update, context):
+    context.user_data["promt"] = update.message.text
+    context.user_data["style"] = "Нет"
+    context.user_data["razmer"] = "1024x1024"
+    context.user_data["n_promt"] = "Нет"
+    await ready_gen(update, context)
+    return 'ready_gen'
 
 
 async def ready_gen(update, context):
+    markup = [[InlineKeyboardButton('✅ Начать генерацию', callback_data='start_generation')],
+              [InlineKeyboardButton('🖼Стиль', callback_data='style'),
+               InlineKeyboardButton('🖥Размер', callback_data='WxH')],
+              [InlineKeyboardButton('✍🏻Промт', callback_data='promt'),
+               InlineKeyboardButton('⛔️Негативный промт', callback_data='n_promt')],
+              [InlineKeyboardButton('🏠Главное меню', callback_data='main_menu')]]
+    promt = context.user_data["promt"]
+    style = context.user_data["style"]
+    razmer = context.user_data["razmer"]
+    n_promt = context.user_data["n_promt"]
+
     mes = f'''Параметры генерации изображения
 
 Вы можете начать генерацию, либо настроить дополнительные параметры:
 
-Промпт: Милая лисичка
+Промпт: {promt}
 
-Стиль: Нет
-Соотношение сторон: 1:1
-Модель: Kandinsky 3.0
-Негативный промпт: Нет
+Стиль: {style}
+Размер: {razmer}
+Негативный промпт: {n_promt if n_promt else 'Нет'}
     '''
+    try:
+        await update.message.reply_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+    except AttributeError:
+        await update.callback_query.edit_message_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+    return 'ready_gen'
 
 
-async def text(update, context):
-    await update.message.reply_text('Используйте /image <something> для генерации')
-
-
-async def generate_image(update, context):
+async def generate_via_image(update, context):
     promt = ' '.join(context.args)
     if promt:
-
-        await update.message.reply_text(f'Делается "{promt}"')
+        await update.message.reply_text(f'Ожидайте...')
         api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '9E9E96FF8D8E84CA66468EE4299FA764',
                             'A518C79988CAA90C30C976EA5B4C05B0')
         model_id = api.get_model()
-        global size
-        x, y = size
-        uuid = api.generate(f"{promt}", model_id, width=x, height=y)
+        uuid = api.generate(f"{promt}", model_id)
         images = api.check_generation(uuid)
         image = base64.b64decode(images[0])
         if image:
@@ -250,27 +266,177 @@ async def generate_image(update, context):
         await update.message.reply_text('Нельзя сгенерировать пустоту. Используйте /image <something> для генерации')
 
 
+async def generate_via_ready(update, context):
+    api = Text2ImageAPI('https://api-key.fusionbrain.ai/', '9E9E96FF8D8E84CA66468EE4299FA764',
+                        'A518C79988CAA90C30C976EA5B4C05B0')
+    # (self, prompt, model, width=1024, height=1024, images=1, style="DEFAULT", negative=False
+    promt = context.user_data["promt"]
+    style = context.user_data["style"]
+    width, height = context.user_data["razmer"].split('x')
+    n_promt = context.user_data["n_promt"]
+
+    uuid = api.generate(f"{promt}", api.get_model(), width, height, 1, style, n_promt)
+    images = api.check_generation(uuid)
+    image = base64.b64decode(images[0])
+    if image:
+        await update.callback_query.edit_message_text(f'{context.user_data["promt"]}\n'
+                                                      f'{context.user_data["razmer"]}\n'
+                                                      f'{f"в стиле: {context.user_data['style']}" if context.user_data["style"] != "Нет" else ''}\n'
+                                                      f'{f"негатив: {n_promt if n_promt else 'Нет'}" if n_promt != "Нет" else ""}')
+        await update.callback_query.message.reply_photo(image)
+
+    else:
+        await update.message.reply_text('Не удалось сгенерировать изображение')
+    return ConversationHandler.END
+    # await after_generate(update, context)
+
+
+async def done(update, context):
+    print('ok')
+
+
+# async def after_generate(update, context):
+#     markup = InlineKeyboardMarkup([
+#         [InlineKeyboardButton('🔄 Заново', callback_data='repeat'),
+#          InlineKeyboardButton('✍🏻Изменить параметры генерации', callback_data='change'),
+#          InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu')]
+#     ])
+#     await update.callback_query.edit_message_text('Вы можете сгенерировать заново или изменить параметры генерации',
+#                                                   reply_markup=markup)
+#     return 'after_gen'
+
+
+async def ready_gen_button(update, context):
+    query = update.callback_query
+    nazad_mainmenu_markup = [
+        InlineKeyboardButton("◀️Назад", callback_data="back"),
+        InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
+    if query.data == 'style':
+        reqget = [x['title'] for x in [x for x in requests.get('https://cdn.fusionbrain.ai/static/styles/api').json()]]
+        spisok = ([InlineKeyboardButton(reqget[i], callback_data=reqget[i])] for i in range(len(reqget)))
+        markup = [*spisok, nazad_mainmenu_markup]
+        await query.edit_message_text('Со стилями можно ознакомиться подробнее в /faq',
+                                      reply_markup=InlineKeyboardMarkup(markup))
+        return 'await_style'
+    elif query.data == 'WxH':
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton('512x512', callback_data='512x512'),
+             InlineKeyboardButton('512x768', callback_data='512x768')],
+            [InlineKeyboardButton('768x768', callback_data='768x768'),
+             InlineKeyboardButton('768x1024', callback_data='768x1024')],
+            [InlineKeyboardButton('1024x768', callback_data='1024x768'),
+             InlineKeyboardButton('1024x1024', callback_data='1024x1024')],
+        ])
+        await query.edit_message_text('Выберите размер изображения из доступных', reply_markup=markup)
+        return 'await_size'
+    elif query.data == 'promt':
+        await query.edit_message_text(
+            f'Введите новый текстовый запрос для генерации. Текущий: {context.user_data["promt"]}',
+            reply_markup=InlineKeyboardMarkup([nazad_mainmenu_markup]))
+        return "await_handler_promt"
+    elif query.data == 'n_promt':
+        await query.edit_message_text(f'Введите новый негатив для генерации. Текущий: {context.user_data["n_promt"]}',
+                                      reply_markup=InlineKeyboardMarkup([nazad_mainmenu_markup]))
+        return 'await_handler_n_promt'
+    elif query.data == 'main_menu':
+        await start(update, context)
+    elif query.data == 'start_generation':
+        await query.edit_message_text(
+            f'Ожидайте... Делается: {context.user_data["promt"]}, {context.user_data["razmer"]}{f", в стиле: {context.user_data['style']}" if context.user_data["style"] != "Нет" else ''}')
+        await generate_via_ready(update, context)
+        return ConversationHandler.END
+    return 'ready_gen'
+
+
+async def apply_size(update, context):
+    context.user_data["razmer"] = update.callback_query.data
+    await ready_gen(update, context)
+    return 'ready_gen'
+
+
+async def apply_npromt(update, context):
+    context.user_data["n_promt"] = update.message.text
+    await ready_gen(update, context)
+    return 'ready_gen'
+
+
+async def apply_promt(update, context):
+    context.user_data["promt"] = update.message.text
+    await ready_gen(update, context)
+    return 'ready_gen'
+
+
+async def apply_style(update, context):
+    context.user_data["style"] = update.callback_query.data
+    await ready_gen(update, context)
+    return 'ready_gen'
+
+
+async def to_menu(update, context):
+    await start(update, context)
+    return ConversationHandler.END
+
+
+async def text(update, context):
+    await update.message.reply_text('Используйте /image <something> для генерации')
+
+
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text))
-    global size
-    size = (1024, 1024)
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(to_gen, pattern='^to_gen$')],
+        states={
+            'await_text': [MessageHandler(filters.TEXT, apply_text),
+                           CallbackQueryHandler(to_menu, pattern='^main_menu$')],
+            'ready_gen': [
+                CallbackQueryHandler(ready_gen_button, pattern='^style$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^WxH$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^promt$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^n_promt$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^back$'),
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^start_generation$'),
+                MessageHandler(filters.TEXT, done)
+            ],
+            'await_handler_promt': [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, apply_promt
+                ),
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen, pattern='^back$')
+            ],
+            'await_handler_n_promt': [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, apply_npromt
+                ),
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen, pattern='^back$')
+            ],
+            'await_size': [
+                CallbackQueryHandler(apply_size),
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen, pattern='^back$')
+            ],
+            'await_style': [
+                CallbackQueryHandler(apply_style),
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen, pattern='^back$')
+            ],
+            'after_gen': [
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(generate_via_ready, pattern='^repeat$'),
+                CallbackQueryHandler(ready_gen, pattern='^change$')
+
+            ]
+        },
+        fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
+    )
+    application.add_handler(conv_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("faq", faq))
-    # conv_handler = ConversationHandler(
-    #     entry_points=[CallbackQueryHandler(to_gen, pattern='^to_gen$')],
-    #     states={
-    #         1: [
-    #             MessageHandler(filters.TEXT & ~filters.COMMAND),
-    #             # MessageHandler(filters.Regex("^Something else...$"), custom_choice),
-    #         ]
-    #     },
-    #     # fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
-    # )
-    #
-    # application.add_handler(conv_handler).
     application.add_handler(CallbackQueryHandler(button_faq))
-    application.add_handler(CommandHandler("image", generate_image))
+    application.add_handler(CommandHandler("image", generate_via_image))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text))
     application.run_polling()
 
 
