@@ -1,6 +1,9 @@
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ConversationHandler
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import sys
+
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes, \
+    ConversationHandler
+from telegram import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, Update, Bot
 from config import BOT_TOKEN
 import json
 import time
@@ -148,7 +151,7 @@ async def FAQReq(update, context):
 
 async def FAQUsAg(update, context):
     mes = '''   Правила пользования ботом
-
+    
    Начиная использование телеграм‒бота, вы соглашаетесь с [Пользовательским соглашением](https://www.sberbank.com/common/img/uploaded/files/promo/kandinskiy-terms/kandinskiy-terms-of-use.pdf) и [Политикой конфиденциальности](https://www.sberbank.ru/privacy/policy#pdn)
    Обращаем внимание, что текстовые запросы, а также графические объекты, которые вы создаете в этом боте, не должны нарушать законодательство Российской Федерации, законодательство страны использования Платформы и общепризнанные этические правила и нормы
 
@@ -183,7 +186,7 @@ async def FAQstyles(update, context):
 async def start(update, context):
     markup = [[InlineKeyboardButton("🖼Сгенерировать изображение", callback_data="to_gen")]]
     mes = '''Привет, Я KandiBot! 👋
-
+    
     Я могу генерировать любые изображения по твоему запросу🤩. Пробуй скорее!
     Введи /image <текст>
     '''
@@ -239,12 +242,9 @@ async def ready_gen(update, context):
 Негативный промпт: {n_promt if n_promt else 'Нет'}
     '''
     try:
-        await update.callback_query.message.reply_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+        await update.message.reply_text(mes, reply_markup=InlineKeyboardMarkup(markup))
     except AttributeError:
-        try:
-            await update.callback_query.edit_message_text(mes, reply_markup=InlineKeyboardMarkup(markup))
-        except AttributeError:
-            await update.message.reply_text(mes, reply_markup=InlineKeyboardMarkup(markup))
+        await update.callback_query.edit_message_text(mes, reply_markup=InlineKeyboardMarkup(markup))
     return 'ready_gen'
 
 
@@ -287,22 +287,23 @@ async def generate_via_ready(update, context):
 
     else:
         await update.message.reply_text('Не удалось сгенерировать изображение')
-    await after_generate(update, context)
+    return ConversationHandler.END
+    # await after_generate(update, context)
 
 
 async def done(update, context):
     print('ok')
 
 
-async def after_generate(update, context):
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton('🔄 Заново', callback_data='repeat'),
-         InlineKeyboardButton('✍🏻Изменить параметры генерации', callback_data='change'),
-         InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu')]
-    ])
-    await update.callback_query.edit_message_text('Вы можете сгенерировать заново или изменить параметры генерации',
-                                                  reply_markup=markup)
-    return 'after_gen'
+# async def after_generate(update, context):
+#     markup = InlineKeyboardMarkup([
+#         [InlineKeyboardButton('🔄 Заново', callback_data='repeat'),
+#          InlineKeyboardButton('✍🏻Изменить параметры генерации', callback_data='change'),
+#          InlineKeyboardButton('🏠 Главное меню', callback_data='main_menu')]
+#     ])
+#     await update.callback_query.edit_message_text('Вы можете сгенерировать заново или изменить параметры генерации',
+#                                                   reply_markup=markup)
+#     return 'after_gen'
 
 
 async def ready_gen_button(update, context):
@@ -343,7 +344,7 @@ async def ready_gen_button(update, context):
         await query.edit_message_text(
             f'Ожидайте... Делается: {context.user_data["promt"]}, {context.user_data["razmer"]}{f", в стиле: {context.user_data['style']}" if context.user_data["style"] != "Нет" else ''}')
         await generate_via_ready(update, context)
-        # return ConversationHandler.END
+        return ConversationHandler.END
     return 'ready_gen'
 
 
@@ -376,19 +377,6 @@ async def to_menu(update, context):
     return ConversationHandler.END
 
 
-async def to_readygen(update, context):
-    await update.callback_query.delete_message()
-    await ready_gen(update, context)
-    return 'ready_gen'
-
-
-async def to_repeat_generation(update, context):
-    await update.callback_query.delete_message()
-    await update.callback_query.message.reply_text('Генерация повторяется')
-    await generate_via_ready(update, context)
-    return 'ready_gen'
-
-
 async def text(update, context):
     await update.message.reply_text('Используйте /image <something> для генерации')
 
@@ -406,10 +394,8 @@ def main():
                 CallbackQueryHandler(ready_gen_button, pattern='^promt$'),
                 CallbackQueryHandler(ready_gen_button, pattern='^n_promt$'),
                 CallbackQueryHandler(ready_gen_button, pattern='^back$'),
-                CallbackQueryHandler(ready_gen_button, pattern='^start_generation$'),
-                CallbackQueryHandler(to_repeat_generation, pattern='^repeat$'),
-                CallbackQueryHandler(to_readygen, pattern='^change$'),
                 CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(ready_gen_button, pattern='^start_generation$'),
                 MessageHandler(filters.TEXT, done)
             ],
             'await_handler_promt': [
@@ -435,6 +421,12 @@ def main():
                 CallbackQueryHandler(apply_style),
                 CallbackQueryHandler(to_menu, pattern='^main_menu$'),
                 CallbackQueryHandler(ready_gen, pattern='^back$')
+            ],
+            'after_gen': [
+                CallbackQueryHandler(to_menu, pattern='^main_menu$'),
+                CallbackQueryHandler(generate_via_ready, pattern='^repeat$'),
+                CallbackQueryHandler(ready_gen, pattern='^change$')
+
             ]
         },
         fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
