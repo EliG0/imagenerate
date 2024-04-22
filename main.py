@@ -376,7 +376,10 @@ async def to_menu(update, context):
     await start(update, context)
     return ConversationHandler.END
 
-
+async def to_readygen(update, context):
+    await ready_gen(update, context)
+    return 'ready_gen'
+    
 async def text(update, context):
     await update.message.reply_text('Используйте /image <something> для генерации')
 
@@ -425,7 +428,7 @@ def main():
             'after_gen': [
                 CallbackQueryHandler(to_menu, pattern='^main_menu$'),
                 CallbackQueryHandler(generate_via_ready, pattern='^repeat$'),
-                CallbackQueryHandler(ready_gen, pattern='^change$')
+                CallbackQueryHandler(to_readygen, pattern='^change$')
 
             ]
         },
