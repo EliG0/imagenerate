@@ -5,7 +5,20 @@
 
 Для дополнительной информации введите /faq.
 
+
+
+# Используемые средства:
+• [Kandinsky API](https://github.com/ai-forever/Kandinsky-3)
+
+• [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot/)
+
+• [requests](https://github.com/psf/requests)
+
+
 # **Обновления**
+[0.4](https://github.com/EliG0/imagenerate/commit/73043f09bca1686b1c90408ce14a9179df3cb8c9) 2024-04-28
+>- исравлены баги. добавлен requirements.txt Может даже не падать долгое время (если не трогать).
+
 [0.32](https://github.com/EliG0/imagenerate/commit/04b52544c1416a9b308385d809ab211f97de250e) 2024-04-25
 >- исправлены баги, добавлена защита от дурака, FAQ пересажен на диалог.
 
